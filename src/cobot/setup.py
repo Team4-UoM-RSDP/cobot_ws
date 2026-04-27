@@ -15,7 +15,7 @@ setup(
     zip_safe=True,
     maintainer='Team 4',
     maintainer_email='174347826+bt-nav@users.noreply.github.com',
-    description='TODO: Package description',
+    description='This package should be installed on the MyCobot 280 Pi.',
     license='BSD-3-Clause',
     extras_require={
         'test': [
