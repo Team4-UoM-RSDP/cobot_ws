@@ -29,45 +29,54 @@ class CobotExecute(Node):
     def __init__(self) -> None:
         super().__init__("cobot_execute")
 
-        # Declare parameters
+        # Declare ROS2 parameters
         self.declare_parameter("port", PI_PORT)
         self.declare_parameter("baud", str(PI_BAUD))
-        self.declare_parameter("joint_cmd_topic", "joint_cmd")
         self.declare_parameter("joint_state_topic", "joint_state")
-        self.declare_parameter("joint_speed", 35)  # 0-100%, 100% = 160°/s
-        self.declare_parameter("gripper_cmd_topic", "gripper_cmd")
-        self.declare_parameter("gripper_state_topic", "gripper_state")
-        self.declare_parameter("gripper_speed", 100)  # 0-100%
         self.declare_parameter("joint_state_hz", 10.0)
+        self.declare_parameter("joint_cmd_topic", "joint_cmd")
         self.declare_parameter("joint_cmd_hz", 0.0)
+        self.declare_parameter("joint_speed", 35)
+        self.declare_parameter("gripper_state_topic", "gripper_state")
+        self.declare_parameter("gripper_cmd_topic", "gripper_cmd")
+        self.declare_parameter("gripper_speed", 100)
 
-        # Get parameters
-        port = self.get_parameter("port").get_parameter_value().string_value
-        baud = self.get_parameter("baud").get_parameter_value().string_value
-        joint_cmd_topic = (
-            self.get_parameter("joint_cmd_topic").get_parameter_value().string_value
-        )
-        joint_state_topic = (
+        # Get ROS2 parameters
+        port: str = self.get_parameter("port").get_parameter_value().string_value
+        baud: str = self.get_parameter("baud").get_parameter_value().string_value
+        joint_state_topic: str = (
             self.get_parameter("joint_state_topic").get_parameter_value().string_value
         )
-        self.joint_speed = (
-            self.get_parameter("joint_speed").get_parameter_value().integer_value
-        )
-        gripper_cmd_topic = (
-            self.get_parameter("gripper_cmd_topic").get_parameter_value().string_value
-        )
-        gripper_state_topic = (
-            self.get_parameter("gripper_state_topic").get_parameter_value().string_value
-        )
-        self.gripper_speed = (
-            self.get_parameter("gripper_speed").get_parameter_value().integer_value
-        )
-        joint_state_hz = (
+        joint_state_hz: float = (
             self.get_parameter("joint_state_hz").get_parameter_value().double_value
         )
-        joint_cmd_hz = (
+        joint_cmd_topic: str = (
+            self.get_parameter("joint_cmd_topic").get_parameter_value().string_value
+        )
+        joint_cmd_hz: float = (
             self.get_parameter("joint_cmd_hz").get_parameter_value().double_value
         )
+        self.joint_speed: int = (
+            self.get_parameter("joint_speed").get_parameter_value().integer_value
+        )
+        gripper_state_topic: str = (
+            self.get_parameter("gripper_state_topic").get_parameter_value().string_value
+        )
+        gripper_cmd_topic: str = (
+            self.get_parameter("gripper_cmd_topic").get_parameter_value().string_value
+        )
+        self.gripper_speed: int = (
+            self.get_parameter("gripper_speed").get_parameter_value().integer_value
+        )
+
+        # Log configuration
+        self.get_logger().info(f"Port: {port}, Baudrate: {baud}")
+        self.get_logger().info(f"Publishing joint states: /{joint_state_topic}")
+        self.get_logger().info(f"Subscribing to joint commands: /{joint_cmd_topic}")
+        self.get_logger().info(f"Joint speed: {self.joint_speed}%")
+        self.get_logger().info(f"Publishing gripper state: /{gripper_state_topic}")
+        self.get_logger().info(f"Subscribing to gripper commands: /{gripper_cmd_topic}")
+        self.get_logger().info(f"Gripper speed set to: {self.gripper_speed}%")
 
         # Initialise pymcobot
         self.mc = MyCobot280(port=port, baudrate=baud)
@@ -76,23 +85,14 @@ class CobotExecute(Node):
             self.mc.set_fresh_mode(1)
             time.sleep(0.05)
         try:
-            # Initial checks
-            power_status = self.mc.is_power_on()
-            if power_status != 1:
-                self.get_logger().warn(
-                    f"is_power_on() returned: {power_status}. Should be 1."
-                )
-            controller_status = self.mc.is_controller_connected()
-            if controller_status != 1:
-                self.get_logger().warn(
-                    f"is_controller_connected() returned: {controller_status}. Should be 1."
-                )
+            # Check servos are enabled
             servo_status = self.mc.is_all_servo_enable()
-            if servo_status != 1:
-                self.get_logger().warn(
-                    f"is_all_servo_enable() returned: {servo_status}. Should be 1."
+            if servo_status == 1:
+                self.get_logger().info("Servos are enabled.")
+            else:
+                self.get_logger().error(
+                    f"Problem with servos: is_all_servo_enable = {servo_status}"
                 )
-
             # Read initial angles
             initial_angles = self.mc.get_angles()
             if initial_angles and len(initial_angles) >= 6:
@@ -118,7 +118,7 @@ class CobotExecute(Node):
         self.joint_limits_deg = self._load_joint_limits_deg()
 
         # Subscribe to /gripper_cmd_topic
-        self.last_gripper_state = None
+        self.gripper_state = None
         self.create_subscription(Int8, gripper_cmd_topic, self.gripper_cmd_callback, 10)
 
         # Subscribe to /joint_cmd_topic with rate limiting
@@ -128,12 +128,12 @@ class CobotExecute(Node):
             JointState, joint_cmd_topic, self.joint_cmd_callback, 10
         )
 
-        # Publish to /joint_state_topic
+        # Publish to /joint_state_topic at a fixed rate
         joint_state_period = 1.0 / joint_state_hz if joint_state_hz > 0 else 0.1
         self.create_timer(joint_state_period, self.joint_state_callback)
         self.joint_state_pub = self.create_publisher(JointState, joint_state_topic, 10)
 
-        # Publish to /gripper_state_topic
+        # Publish to /gripper_state_topic when the gripper state changes
         self.gripper_state_pub = self.create_publisher(Int8, gripper_state_topic, 10)
 
         # Action server to follow MoveIt trajectories
@@ -146,47 +146,53 @@ class CobotExecute(Node):
 
     def joint_cmd_callback(self, msg: JointState) -> None:
         """Executes when a message is received on /joint_cmd_topic."""
+        # Limit joint command rate to set frequency
         if self.joint_cmd_period > 0:
             current_time = time.time()
             if current_time - self.last_joint_cmd_time < self.joint_cmd_period:
                 return
             self.last_joint_cmd_time = current_time
+        # Convert JointState message to a dictionary
         state_dict = dict(zip(msg.name, msg.position))
+        # Extract angles and convert to degrees
         angles = [
             round(math.degrees(state_dict[j]), 3)
             for j in self.joint_names
             if j in state_dict
         ]
+        # Clamp angles to joint limits and send to the cobot
         if len(angles) == 6:
             angles = self._clamp_angles_deg(angles)
             try:
                 self.mc.send_angles(angles, self.joint_speed)
             except Exception as e:
-                self.get_logger().error(f"Send failed: {e}")
+                self.get_logger().error(f"Failed to execute joint commands: {e}")
 
     def gripper_cmd_callback(self, msg: Int8) -> None:
         """Executes when a message is received on /gripper_cmd_topic."""
-        if msg.data == self.last_gripper_state:
+        # Ignore if already in the requested state
+        if msg.data == self.gripper_state:
             return
         try:
+            # Send the command and track gripper state
             self.mc.set_gripper_state(msg.data, self.gripper_speed)
-            self.last_gripper_state = msg.data
-            self.gripper_state_pub.publish(Int8(data=msg.data))
+            self.gripper_state = msg.data
+            # Publish the new gripper state
+            self.gripper_state_pub.publish(Int8(data=self.gripper_state))
         except Exception as e:
-            self.get_logger().error(f"Gripper failed: {e}")
+            self.get_logger().error(f"Failed to execute gripper commands: {e}")
 
     def joint_state_callback(self) -> None:
         """Publishes the current joint states at a fixed rate."""
+        # Return if not all servos are ready
         try:
-            if (
-                self.mc.is_controller_connected() != 1
-                or self.mc.is_power_on() != 1
-                or self.mc.is_all_servo_enable() != 1
-            ):
+            if self.mc.is_all_servo_enable() != 1:
                 return
+            # Get current angles
             res = cast(List[float], self.mc.get_angles())
             if not res or len(res) < 6:
                 return
+            # Publish as a JointState message
             msg = JointState()
             msg.header.stamp = self.get_clock().now().to_msg()
             msg.header.frame_id = "world"
@@ -204,23 +210,29 @@ class CobotExecute(Node):
         """Executes when a trajectory goal is received from MoveIt."""
         traj = goal_handle.request.trajectory
         res = FollowJointTrajectory.Result()
+        # Succeed if trajectory is empty
         if not traj.points:
             goal_handle.succeed()
             return res
+        # Execute sequentially through trajectory points
         for i, point in enumerate(traj.points):
+            # Check for cancellation at each point
             if goal_handle.is_cancel_requested:
                 goal_handle.canceled()
                 return res
+            # Convert trajectory points to joint angles and clamp
             angles = self._clamp_angles_deg(
                 [math.degrees(p) for p in point.positions[:6]]
             )
+            # Send joint angles to the cobot
             try:
                 self.mc.send_angles(angles, self.joint_speed)
             except Exception as e:
-                self.get_logger().error(f"Error sending angles: {e}")
+                self.get_logger().error(f"Failed to execute trajectory: {e}")
                 res.error_code = -1
                 goal_handle.abort()
                 return res
+            # Publish action feedback
             feedback = FollowJointTrajectory.Feedback()
             feedback.joint_names = self.joint_names
             feedback.desired = point
@@ -230,6 +242,7 @@ class CobotExecute(Node):
                 delay = (t1.sec + t1.nanosec / 1e9) - (t0.sec + t0.nanosec / 1e9)
                 if delay > 0:
                     time.sleep(min(delay, 5.0))
+        # Succeed after executing all trajectory points
         res.error_code = 0
         goal_handle.succeed()
         return res
@@ -243,6 +256,7 @@ class CobotExecute(Node):
                     (self.mc.get_joint_min_angle(i), self.mc.get_joint_max_angle(i))
                 )
             return limits
+        # Fallback to infinite limits
         except Exception as e:
             self.get_logger().error(f"Error loading joint limits: {e}")
             self.get_logger().warn("Proceeding without joint limits.")
@@ -271,7 +285,7 @@ def main(args: Optional[List[str]] = None) -> None:
     except KeyboardInterrupt:
         pass
     except Exception as e:
-        _logger.error(f"Error spinning node: {e}", exc_info=True)
+        _logger.error(f"Error spinning node: {e}")
 
 
 if __name__ == "__main__":
