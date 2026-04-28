@@ -5,6 +5,11 @@
 
 ROS2 workspace for the myCobot 280 Pi.
 
+__Contents:__
+1. [Installation](#installation)
+    1. [ROS2 Environment Setup](#ros2-environment-setup)
+2. [Usage](#usage)
+
 ### Installation
 1. Clone this repository onto the cobot:
 ```
