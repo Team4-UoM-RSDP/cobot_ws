@@ -39,7 +39,7 @@ class CobotExecute(Node):
         self.declare_parameter("joint_speed", 35)
         self.declare_parameter("gripper_state_topic", "gripper_state")
         self.declare_parameter("gripper_cmd_topic", "gripper_cmd")
-        self.declare_parameter("gripper_speed", 100)
+        self.declare_parameter("gripper_speed", 80)
 
         # Get ROS2 parameters
         port: str = self.get_parameter("port").get_parameter_value().string_value
@@ -85,23 +85,34 @@ class CobotExecute(Node):
             self.mc.set_fresh_mode(1)
             time.sleep(0.05)
         try:
-            # Check servos are enabled
+            # Initialise the gripper
+            # self.mc.set_gripper_calibration() # Uncomment when the gripper is closed to calibrate.
+            if self.mc.init_gripper() == 1:
+                self.get_logger().info("Gripper initialised.")
+            else:
+                self.get_logger().error("Failed to initialise the gripper.")
+            # Wait until servos are ready before proceeding
+            start_time = time.time()
             servo_status = self.mc.is_all_servo_enable()
+            while servo_status != 1 and time.time() - start_time < 5.0:
+                self.get_logger().info("Waiting for servos...")
+                time.sleep(0.1)
+                servo_status = self.mc.is_all_servo_enable()
             if servo_status == 1:
                 self.get_logger().info("Servos are enabled.")
+                # Read initial angles
+                initial_angles = self.mc.get_angles()
+                if initial_angles and len(initial_angles) >= 6:
+                    self.get_logger().info(
+                        f"Connected to MyCobot 280 Pi. Initial joint angles: {initial_angles[:6]}"
+                    )
+                else:
+                    self.get_logger().warning(
+                        f"get_angles() returned unexpected data: {initial_angles}"
+                    )
             else:
                 self.get_logger().error(
-                    f"Problem with servos: is_all_servo_enable = {servo_status}"
-                )
-            # Read initial angles
-            initial_angles = self.mc.get_angles()
-            if initial_angles and len(initial_angles) >= 6:
-                self.get_logger().info(
-                    f"Connected to MyCobot 280 Pi. Initial joint angles: {initial_angles[:6]}"
-                )
-            else:
-                self.get_logger().warn(
-                    f"get_angles() returned unexpected data: {initial_angles}"
+                    f"Timeout waiting for servos: is_all_servo_enable = {servo_status}"
                 )
         except Exception as e:
             self.get_logger().error(f"Failed to connect to the MyCobot 280 Pi: {e}")
@@ -170,12 +181,22 @@ class CobotExecute(Node):
 
     def gripper_cmd_callback(self, msg: Int8) -> None:
         """Executes when a message is received on /gripper_cmd_topic."""
-        # Ignore if already in the requested state
+        # Ignore redundant or invalid commands
         if msg.data == self.gripper_state:
             return
+        if msg.data not in (0, 100):
+            self.get_logger().warn(
+                f"Invalid gripper command: {msg.data}. Expected 0 (close) or 100 (open)."
+            )
+            return
         try:
-            # Send the command and track gripper state
-            self.mc.set_gripper_state(msg.data, self.gripper_speed)
+            # Send the command (100=open, 0=closed)
+            self.mc.set_gripper_value(
+                gripper_value=msg.data,
+                speed=self.gripper_speed,
+                gripper_type=1,
+                is_torque=1,
+            )
             self.gripper_state = msg.data
             # Publish the new gripper state
             self.gripper_state_pub.publish(Int8(data=self.gripper_state))
