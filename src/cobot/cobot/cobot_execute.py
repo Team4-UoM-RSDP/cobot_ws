@@ -32,7 +32,7 @@ class CobotExecute(Node):
         # Declare ROS2 parameters
         self.declare_parameter("port", PI_PORT)
         self.declare_parameter("baud", str(PI_BAUD))
-        self.declare_parameter("joint_state_topic", "joint_state")
+        self.declare_parameter("joint_states_topic", "joint_states")
         self.declare_parameter("joint_state_hz", 10.0)
         self.declare_parameter("joint_cmd_topic", "joint_cmd")
         self.declare_parameter("joint_cmd_hz", 0.0)
@@ -44,8 +44,8 @@ class CobotExecute(Node):
         # Get ROS2 parameters
         port: str = self.get_parameter("port").get_parameter_value().string_value
         baud: str = self.get_parameter("baud").get_parameter_value().string_value
-        joint_state_topic: str = (
-            self.get_parameter("joint_state_topic").get_parameter_value().string_value
+        joint_states_topic: str = (
+            self.get_parameter("joint_states_topic").get_parameter_value().string_value
         )
         joint_state_hz: float = (
             self.get_parameter("joint_state_hz").get_parameter_value().double_value
@@ -71,7 +71,7 @@ class CobotExecute(Node):
 
         # Log configuration
         self.get_logger().info(f"Port: {port}, Baudrate: {baud}")
-        self.get_logger().info(f"Publishing joint states: /{joint_state_topic}")
+        self.get_logger().info(f"Publishing joint states: /{joint_states_topic}")
         self.get_logger().info(f"Subscribing to joint commands: /{joint_cmd_topic}")
         self.get_logger().info(f"Joint speed: {self.joint_speed}%")
         self.get_logger().info(f"Publishing gripper state: /{gripper_state_topic}")
@@ -128,12 +128,12 @@ class CobotExecute(Node):
             JointState, joint_cmd_topic, self.joint_cmd_callback, 10
         )
 
-        # Publish to /joint_state_topic at a fixed rate
+        # Publish to /joint_states at a fixed rate
         joint_state_period = 1.0 / joint_state_hz if joint_state_hz > 0 else 0.1
         self.create_timer(joint_state_period, self.joint_state_callback)
-        self.joint_state_pub = self.create_publisher(JointState, joint_state_topic, 10)
+        self.joint_state_pub = self.create_publisher(JointState, joint_states_topic, 10)
 
-        # Publish to /gripper_state_topic when the gripper state changes
+        # Publish to /gripper_state when the gripper state changes
         self.gripper_state_pub = self.create_publisher(Int8, gripper_state_topic, 10)
 
         # Action server to follow MoveIt trajectories
