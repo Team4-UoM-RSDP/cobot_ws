@@ -1,5 +1,5 @@
 """
-cobot_execute.py
+calibrate_gripper.py
 
 A ROS2 node that calibrates the Elephant Robotics adaptive gripper.
 The gripper must be fully closed before running.
