@@ -35,6 +35,7 @@ setup(
     entry_points={
         "console_scripts": [
             "cobot_execute = cobot.cobot_execute:main",
+            "calibrate_gripper = cobot.calibrate_gripper:main",
         ],
     },
 )
