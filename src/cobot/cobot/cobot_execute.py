@@ -197,6 +197,22 @@ class CobotExecute(Node):
                 gripper_type=1,
                 is_torque=1,
             )
+            # Detect if an object is grasped while closing the gripper
+            if msg.data == 0:
+                # Get the gripper value when it stops moving
+                while cast(int, self.mc.is_gripper_moving()) == 1:
+                    time.sleep(0.05)
+                grasp_val = cast(int, self.mc.get_gripper_value())
+                # If gripper didn't fully close, an object was grasped
+                if grasp_val > 0:
+                    self.get_logger().info("Object grasped.")
+                    # Set gripper to this position to maintain the grasp
+                    self.mc.set_gripper_value(
+                        gripper_value=grasp_val,
+                        speed=self.gripper_speed,
+                        gripper_type=1,
+                        is_torque=1,
+                    )
             self.gripper_state = msg.data
             # Publish the new gripper state
             self.gripper_state_pub.publish(Int8(data=self.gripper_state))
