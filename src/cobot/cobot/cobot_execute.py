@@ -68,6 +68,12 @@ class CobotExecute(Node):
         self.gripper_speed: int = (
             self.get_parameter("gripper_speed").get_parameter_value().integer_value
         )
+        start_stop_topic: str = (
+            self.get_parameter("start_stop_topic").get_parameter_value().string_value
+        )
+        self.cobot_stopped: int = (
+            self.get_parameter("cobot_stopped").get_parameter_value().integer_value
+        )
 
         # Log configuration
         self.get_logger().info(f"Port: {port}, Baudrate: {baud}")
@@ -133,6 +139,14 @@ class CobotExecute(Node):
             JointState, joint_cmd_topic, self.joint_cmd_callback, 10
         )
 
+        # Subscribe to /start_stop_topic to stop the cobot immediately
+        self.create_subscription(
+            Int8,
+            start_stop_topic,
+            self.start_stop_callback,
+            10,
+        )
+
         # Publish to /joint_states at a fixed rate
         joint_state_period = 1.0 / joint_state_hz if joint_state_hz > 0 else 0.1
         self.create_timer(joint_state_period, self.joint_state_callback)
@@ -148,6 +162,17 @@ class CobotExecute(Node):
             "arm_controller/follow_joint_trajectory",
             execute_callback=self.trajectory_execute_callback,
         )
+
+    def start_stop_callback(self, msg: Int8) -> None:
+        """Handles  commands from /cobot_start_stop."""
+        if msg.data == 1 and self.cobot_stopped != 1:
+            self.mc.stop()
+        elif msg.data == 0 and self.cobot_stopped != 0:
+            self.mc.resume()
+        else:
+            self.get_logger().warn(
+                f"Received invalid start/stop command: {msg.data}. Current state: {self.cobot_stopped}"
+            )
 
     def joint_cmd_callback(self, msg: JointState) -> None:
         """Executes when a message is received on /joint_cmd_topic."""
