@@ -203,6 +203,10 @@ class CobotExecute(Node):
     def gripper_cmd_callback(self, msg: Int8) -> None:
         """Executes when a message is received on /gripper_cmd_topic."""
         # Ignore redundant or invalid commands
+        self.get_logger().info(f"Received gripper command: {msg.data}")
+        self.get_logger().info(
+            f"Current gripper position: {self.mc.get_gripper_value()}"
+        )
         if msg.data == self.gripper_state:
             return
         if msg.data not in (0, 100):
@@ -218,22 +222,27 @@ class CobotExecute(Node):
                 gripper_type=1,
                 is_torque=1,
             )
-            # Detect if an object is grasped while closing the gripper
+            self.get_logger().info(f"Gripper command sent: {msg.data}")
+            # If closing, wait for gripper to settle and detect grasp
             if msg.data == 0:
-                # Get the gripper value when it stops moving
+                # Wait for gripper to start moving
+                time.sleep(2.0)
+                # Wait for gripper to stop moving (object grasped or fully closed)
                 while cast(int, self.mc.is_gripper_moving()) == 1:
-                    time.sleep(0.05)
+                    time.sleep(0.1)
+                # If gripper didn't fully close, assume a block is grasped
                 grasp_val = cast(int, self.mc.get_gripper_value())
-                # If gripper didn't fully close, an object was grasped
-                if grasp_val > 0:
-                    self.get_logger().info("Object grasped.")
-                    # Set gripper to this position to maintain the grasp
+                if grasp_val > 10:
+                    self.get_logger().info(f"Object grasped at position: {grasp_val}")
+                    # Maintain grasp position
                     self.mc.set_gripper_value(
                         gripper_value=grasp_val,
                         speed=self.gripper_speed,
                         gripper_type=1,
                         is_torque=1,
                     )
+            else:
+                time.sleep(1.0)
             self.gripper_state = msg.data
             # Publish the new gripper state
             self.gripper_state_pub.publish(Int8(data=self.gripper_state))
