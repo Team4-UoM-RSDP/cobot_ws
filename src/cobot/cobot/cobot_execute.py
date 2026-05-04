@@ -40,6 +40,8 @@ class CobotExecute(Node):
         self.declare_parameter("gripper_state_topic", "gripper_state")
         self.declare_parameter("gripper_cmd_topic", "gripper_cmd")
         self.declare_parameter("gripper_speed", 80)
+        self.declare_parameter("start_stop_topic", "cobot_start_stop")
+        self.declare_parameter("cobot_stopped", 0)
 
         # Get ROS2 parameters
         port: str = self.get_parameter("port").get_parameter_value().string_value
