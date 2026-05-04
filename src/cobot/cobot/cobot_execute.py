@@ -85,12 +85,6 @@ class CobotExecute(Node):
             self.mc.set_fresh_mode(1)
             time.sleep(0.05)
         try:
-            # Initialise the gripper
-            # self.mc.set_gripper_calibration() # Uncomment when the gripper is closed to calibrate.
-            if self.mc.init_gripper() == 1:
-                self.get_logger().info("Gripper initialised.")
-            else:
-                self.get_logger().error("Failed to initialise the gripper.")
             # Wait until servos are ready before proceeding
             start_time = time.time()
             servo_status = self.mc.is_all_servo_enable()
