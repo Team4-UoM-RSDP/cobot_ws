@@ -19,7 +19,7 @@ from rclpy.action import ActionServer
 from rclpy.action.server import ServerGoalHandle
 from rclpy.logging import get_logger
 from rclpy.node import Node
-from sensor_msgs.msg import JointState
+from sensor_msgs.msg import JointStates
 from std_msgs.msg import Int8
 
 _logger = get_logger(__name__)
@@ -127,8 +127,13 @@ class CobotExecute(Node):
             "link4_to_link5",
             "link5_to_link6",
             "link6_to_link6_flange",
+            "gripper_controller",
         ]
         self.joint_limits_deg = self._load_joint_limits_deg()
+        
+        # Gripper joint angle limits (radians)
+        self.gripper_min_angle = -0.7
+        self.gripper_max_angle = 0.15
 
         # Subscribe to /gripper_cmd_topic
         self.gripper_state = None
@@ -259,14 +264,20 @@ class CobotExecute(Node):
             res = cast(List[float], self.mc.get_angles())
             if not res or len(res) < 6:
                 return
+            # Get gripper position and convert to joint angle
+            gripper_value = cast(int, self.mc.get_gripper_value())
+            # Map gripper value (0-100) to joint angle (-0.7 to 0.15 radians)
+            gripper_angle = self.gripper_min_angle + (gripper_value / 100.0) * (
+                self.gripper_max_angle - self.gripper_min_angle
+            )
             # Publish as a JointState message
             msg = JointState()
             msg.header.stamp = self.get_clock().now().to_msg()
             msg.header.frame_id = "world"
             msg.name = self.joint_names
-            msg.position = [math.radians(float(a)) for a in res[:6]]
-            msg.velocity = [0.0] * 6
-            msg.effort = [0.0] * 6
+            msg.position = [math.radians(float(a)) for a in res[:6]] + [gripper_angle]
+            msg.velocity = [0.0] * 7
+            msg.effort = [0.0] * 7
             self.joint_state_pub.publish(msg)
         except Exception as e:
             self.get_logger().warn(f"Feedback error: {e}")
@@ -301,7 +312,7 @@ class CobotExecute(Node):
                 return res
             # Publish action feedback
             feedback = FollowJointTrajectory.Feedback()
-            feedback.joint_names = self.joint_names
+            feedback.joint_names = self.joint_names[:6]  # Only arm joints from MoveIt
             feedback.desired = point
             goal_handle.publish_feedback(feedback)
             if i < len(traj.points) - 1:
